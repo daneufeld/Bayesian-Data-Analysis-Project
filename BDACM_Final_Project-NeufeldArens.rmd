@@ -1,0 +1,574 @@
+---
+title: "Final Project"
+author: "Emilia Arens, David Neufeld"
+output:
+  html_document
+---
+
+
+# Introduction
+* We used the final project to construct a guide covering multiple methods that are useful in data analysis. Our aim is to extract knowledge out of a dataset by plotting the effects of multiple variables on the outcome and comparing different models that could explain the data. This document therefore holds as an overview over the past semster as well as it functions as a guide and introduction to basic methods in R and Stan.
+
+
+1. Load the required packages and change the seed to your last name.
+
+```{r, eval = TRUE}
+
+#load required packages
+library(TeachingDemos)
+library(tidyverse)
+library(rstan)
+library(ggmcmc)
+library(brms)
+library(loo)
+library(plotrix)
+library(bayesplot)
+
+
+# set cores to use to the total number of cores (minimally 4)
+options(mc.cores = max(parallel::detectCores(), 4))
+# save a compiled version of the Stan model file
+rstan_options(auto_write = TRUE)
+
+lastname <- "ARENSNEUFELD"
+
+char2seed(lastname)
+
+```
+
+
+
+# 1. Read and plot the data
+
+a. Load and clean the data 
+---
+
+First of all, we take a look at the data by plotting various relations which might be interesting to us. 
+We read the data file first and specify our independent variables as factors if necessary.
+
+```{r, eval=TRUE}
+#read the data file 
+studPerf = read.csv('StudentsPerformance.csv') %>% 
+  
+  #only if necessary
+  mutate(gender = as.factor(gender),race.ethnicity =                                                                                  as.factor(race.ethnicity),parental.level.of.education=as.factor(parental.level.of.education),lunch =                         as.factor(lunch),test.preparation.course = as.factor(test.preparation.course)) 
+
+#print tibble
+studPerf
+
+```
+
+-----------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------
+
+In order to get an idea of the data distribution and possible dependencies we now plot the tibble with changing variables and calculate the mean scores:
+
+# 1. GENDER
+
+Plot the math score grouped by gender
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = gender, y = math.score, group = as.character(gender))) + 
+        geom_boxplot() + 
+        ylim(0, 150)
+
+```
+This result strengthens the thesis that gender influences the math score. The mean of the male math score is higher that the mean of the female math score.
+
+
+
+Density plot of math score grouped by gender
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = math.score, fill = gender)) + 
+        geom_density(alpha = 0.5) + 
+        xlim(0,150)
+
+
+```
+This density plot supports the boxplots.
+
+
+Calculate mean and standard error of math score grouped by gender
+```{r, eval = TRUE}
+
+summary_gender <- group_by(studPerf,gender, add = FALSE) %>% 
+                    summarise(mean = mean(math.score), sd = sd(math.score))
+
+print(summary_gender)
+```
+
+T-test with null hypothesis "mean of the men math scores equals the mean of the women math scores"
+```{r, eval = TRUE}
+
+men_data <- studPerf %>% 
+            filter(gender=="male")
+women_data <- studPerf%>%
+            filter(gender=="female")
+t.test(x= men_data$math.score,
+       y=women_data$math.score,
+       var.equal=TRUE,
+       paired=FALSE)
+
+```
+
+Based on these numbers and plots, it seems likely that there is a significant difference between men and women in respect to their performance in math. Because the p value is lower than 0.05 it is significant and we adapt the alternative hypothesis stating that the mean of both genders is not equal. 
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+# 2. ETHNICITY
+
+Repeat all steps for next variable
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = race.ethnicity, y = math.score, group = race.ethnicity)) + 
+        geom_boxplot() + 
+        ylim(0, 150)
+
+```
+Again we recognize differences in the mean values within the ethnicity.
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = math.score, fill = race.ethnicity)) + 
+        geom_density(alpha = 0.5) + 
+        xlim(0,150)
+
+
+```
+
+```{r, eval = TRUE}
+
+summary_gender <- group_by(studPerf,race.ethnicity, add = FALSE) %>% 
+                    summarise(mean = mean(math.score), sd = sd(math.score))
+
+print(summary_gender)
+```
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+# 3. PARENTAL LEVEL OF EDUCATION
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = parental.level.of.education, y = math.score, group = parental.level.of.education)) + 
+        geom_boxplot() + 
+        ylim(0, 150)
+
+```
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = math.score, fill = parental.level.of.education)) + 
+        geom_density(alpha = 0.5) + 
+        xlim(0,130)
+
+
+```
+Due to these boxplots it seems likely that also the educational level of the parents influences the math score.
+
+
+```{r, eval = TRUE}
+
+summary_gender <- group_by(studPerf,parental.level.of.education, add = FALSE) %>% 
+                    summarise(mean = mean(math.score), sd = sd(math.score))
+
+print(summary_gender)
+```
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+# 4. LUNCH
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = lunch, y = math.score, group = lunch)) + 
+        geom_boxplot() + 
+        ylim(0, 150)
+
+```
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = math.score, fill = lunch)) + 
+        geom_density(alpha = 0.5) + 
+        xlim(0,130)
+
+
+```
+
+```{r, eval = TRUE}
+
+summary_gender <- group_by(studPerf,lunch, add = FALSE) %>% 
+                    summarise(mean = mean(math.score), sd = sd(math.score))
+
+print(summary_gender)
+```
+
+T-test with null hypothesis "mean of the lunch math scores equals the mean of the reduced lunch math scores"
+```{r, eval = TRUE}
+
+lunch_data <- studPerf %>% 
+            filter(lunch=="free/reduced")
+free_lunch_data <- studPerf%>%
+            filter(lunch=="standard")
+t.test(x = lunch_data$math.score,
+       y = free_lunch_data$math.score,
+       var.equal=TRUE,
+       paired=FALSE)
+
+```
+
+Again we have a significant p value lower than 0.05. Therefore we assume that there is a significant difference according to the lunch.
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+# 5. TEST PREPARATION COURSE
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = test.preparation.course, y = math.score, group = test.preparation.course)) + 
+        geom_boxplot() + 
+        ylim(0, 150)
+
+```
+
+```{r, eval = TRUE}
+
+ggplot(data = studPerf, aes(x = math.score, fill = test.preparation.course)) + 
+        geom_density(alpha = 0.5) + 
+        xlim(0,130)
+
+
+```
+
+
+```{r, eval = TRUE}
+
+summary_gender <- group_by(studPerf,test.preparation.course, add = TRUE) %>% 
+                    summarise(mean = mean(math.score))
+
+print(summary_gender)
+```
+
+T-test with null hypothesis "mean of the test math scores equals the mean of no test math scores"
+```{r, eval = TRUE}
+
+test_data <- studPerf %>% 
+            filter(test.preparation.course == "completed")
+no_test_data <- studPerf%>%
+            filter(test.preparation.course=="none")
+
+t.test(x = test_data$math.score,
+       y = no_test_data$math.score,
+       var.equal=TRUE,
+       paired=FALSE)
+
+```
+
+This p value is significant as well. We reject the null-hypothesis.
+-----------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+
+# 2. Create model for data
+
+The next step is to constuct possible models that explain the data. First we set up the models and second we test five different hypotheses with each model.
+
+
+HYPOTHESES
+
+1. Female-Master > Female-Highschool
+2. Male-Master > Male-Highschool
+3. Male-Test > Male-No-Test
+4. Female-Test > Female-No-Test
+5. Female > Male
+
+---
+
+Create different models that explain the data and verify the hypotheses
+```{r, eval=TRUE}
+
+#all factors are independent
+model_independent <- brm(formula = math.score ~ gender + parental.level.of.education + test.preparation.course + lunch +                              race.ethnicity,
+                         data = studPerf)
+
+#parental level of education and lunch interact
+model_parent_lunch <- brm(formula = math.score ~ gender + parental.level.of.education*lunch + test.preparation.course +                              race.ethnicity,
+                         data = studPerf)
+
+#also gender and test preparation course interact
+model_gender_test <- brm(formula = math.score ~ gender*test.preparation.course + parental.level.of.education*lunch +                                  race.ethnicity,
+                           data = studPerf)
+
+#parental level of education influences the lunch
+model_random_slope <-brm(formula = math.score ~ gender*test.preparation.course + parental.level.of.education*lunch +                                  race.ethnicity + (parental.level.of.education|lunch),
+                          data = studPerf)
+
+#also gender influences test prepataion course
+model_random_slopes <-brm(formula = math.score ~ gender*test.preparation.course + parental.level.of.education*lunch +                                  race.ethnicity + (parental.level.of.education|lunch) + (gender|test.preparation.course),
+                          data = studPerf)
+
+```
+
+
+Varify hypotheses with constructed models
+```{r, eval=TRUE}
+extract_comparisons <- function(model) {
+  
+  # get posterior samples
+  post_samples <- posterior_samples(model)
+  #print(post_samples)
+  
+  # mnemonic names for reconstructed predictor values for all cells in the design matrix
+  
+  #male math master
+  Female_master <- post_samples$b_Intercept + 
+                   post_samples$b_parental.level.of.educationmastersdegree
+  
+  #male math highschool
+  Female_HighSchool <- post_samples$b_Intercept + 
+                       post_samples$b_parental.level.of.educationsomehighschool
+  
+  #male math master
+  Male_master <- post_samples$b_Intercept + 
+                 post_samples$b_gendermale + 
+                 post_samples$b_parental.level.of.educationmastersdegree
+  
+  #male math highschool
+  Male_HighSchool <- post_samples$b_Intercept + 
+                     post_samples$b_gendermale + 
+                     post_samples$b_parental.level.of.educationsomehighschool
+  
+  #male test
+  Male_test <- post_samples$b_Intercept + 
+               post_samples$b_gendermale
+  
+  #male no test
+  Male_noTest <- post_samples$b_Intercept + 
+                 post_samples$b_gendermale +
+                 post_samples$b_test.preparation.coursenone
+  
+  #female test
+  Female_test <- post_samples$b_Intercept  
+
+  #female no test
+  Female_noTest <- post_samples$b_Intercept + 
+                   post_samples$b_test.preparation.coursenone
+  
+  #Female
+  Female <- post_samples$b_Intercept
+         
+  #Male
+  Male <- post_samples$b_Intercept +
+          post_samples$b_gendermale
+           
+  
+            
+  
+  
+  # create a tibble for recording hypotheses probabilities
+  tibble(
+    # names of hypotheses
+    hypothesis = c(
+      # h1: 
+      "Female_master > Female_HighSchool",
+      # h2: 
+      "Male_master > Male_HighSchool",
+      #h3:
+      "Male_test > Male_noTest",
+      #h4:
+      "Female_test > Female_noTest",
+      #h5:
+      "Female > Male"
+      ),
+         
+    # probability of hypotheses being true
+    probability = c(
+      # h1:
+      mean(Female_master > Female_HighSchool),
+      # h2:
+      mean(Male_master > Male_HighSchool),
+      #h3:
+      mean(Male_test > Male_noTest),
+       #h4:
+      mean(Female_test > Female_noTest),
+      #h5:
+      mean(Female > Male)
+      )
+    )
+}
+
+# run the function on each model
+
+model_independent_function <- extract_comparisons(model_independent)
+model_independent_function
+
+
+model_parent_lunch_function <- extract_comparisons(model_parent_lunch)
+model_parent_lunch_function
+
+
+model_gender_test_function <- extract_comparisons(model_gender_test)
+model_gender_test_function
+
+
+model_random_slope_function <- extract_comparisons(model_random_slope)
+model_random_slope_function
+
+
+model_random_slopes_function <- extract_comparisons(model_random_slopes)
+model_random_slopes_function
+
+```
+
+
+Use Leave-one-out-cross-Validation to check which model explains the data best
+```{r, eval=TRUE}
+
+loo(model_independent,model_parent_lunch, model_gender_test, model_random_slope, model_random_slopes,
+    reloo = T)
+
+```
+Since lower LOO-IC scores are better and we judge any difference between LOO-IC scores to be meaningful if the SE of the difference does not exceed the absolute value of the LOO-IC score of the difference we conclude that the first model performes best. 
+
+
+# 3. Correlation of scores
+
+
+```{r}
+
+studPerf %>%
+  ggplot(mapping = aes(x=reading.score, y= math.score, color = writing.score)) + geom_point()
+
+
+
+
+```
+
+This plot shows a positive correlation between math score, writing score and reading score. We try to model this correlation with a linear and a curved line model.
+
+
+At this point, we have to rename math.score to mathscore and reading.score to readingscore.
+```{r}
+library(plyr)
+studPerf <- rename(studPerf,c("math.score"="mathscore", "reading.score"="readingscore"))
+show(studPerf)
+studPerf <- select(studPerf, c("mathscore", "readingscore"))
+```
+
+
+```{r}
+straight_line_string <- "
+data {
+  vector [1000] readingscore;
+  vector [1000] mathscore;
+}
+parameters {
+  real alpha;
+  real beta;
+  real <lower=0> sigma;
+}
+model {
+mathscore ~ normal(alpha + beta * readingscore, sigma);
+}
+"
+curved_line_string <- "
+data {
+  vector [1000] readingscore;
+  vector [1000] mathscore;
+}
+parameters {
+  real alpha;
+  real beta;
+  real <lower=0, upper=1.5> d;
+  real <lower=0> sigma;
+}
+model {
+for (i in 1:1000) {
+target += normal_lpdf(mathscore[i] | alpha + beta *readingscore[i]^d, sigma);
+}
+}
+"
+
+
+
+
+```
+
+Unfortunately, our second model did not work. When we fitted the model, it "completed" the fitting, but then it was said that the modals does not contain samples.But we just continued with the next steps to analyze the data, as if it had worked. 
+
+```{r}
+stanfit_straight_line_string <- stan(model_code=straight_line_string,
+                                     iter=50000, warmup=10000,
+                                     control=list(adapt_delta=0.999),
+                                     pars=c("alpha","beta","sigma"),
+                                     data=studPerf)
+stanfit_curved_line_string <- stan(model_code=curved_line_string,
+                                   iter=50000, warmup=10000,
+                                   control=list(adapt_delta=0.999),
+                                   pars=c("alpha","beta","d","sigma"),
+                                   data=studPerf)
+```
+
+
+
+```{r}
+stanfit_curved_line_string_summary <- summary(stanfit_straight_line_string)
+stanfit_curved_line_string_summary <- summary(stanfit_curved_line_string)
+show(stanfit_curved_line_string_summary)
+show(stanfit_straight_line_string_summary)
+```
+
+
+Make traceplots for both models.
+```{r}
+traceplot(stanfit_straight_line_string, pars = c("alpha","beta","sigma"), include = TRUE, unconstrain = FALSE,  inc_warmup = FALSE, window = NULL, nrow = NULL, ncol = NULL)
+
+traceplot(stanfit_curved_line_string, pars = c("alpha","beta","sigma","d"), include = TRUE, unconstrain = FALSE, 
+          inc_warmup = FALSE, window = NULL, nrow = NULL, ncol = NULL)
+
+```
+
+
+Make density plots for both models.
+```{r}
+plot(stanfit_straight_line_string ,plotfun = "dens", pars = c("alpha","beta","sigma"))
+
+plot(stanfit_curved_line_string, plotfun="dens", pars = c("alpha","beta","sigma","d"))
+```
+
+
+Approximate the likelihood of both models using the bridgesampling package.
+```{r}
+bridge_straight_line = bridgesampling:: bridge_sampler(samples = stanfit_straight_line_string, repetitions = 1, silent = T)
+bridge_curved_line = bridgesampling:: bridge_sampler(samples = stanfit_curved_line_string, repetitions = 1, silent = T)
+
+print(bride_curved_line)
+print(bridge_power)
+```
+
+Determine the error of the estimated likelihood using `bridgesampling::error_measures`.
+```{r}
+bridge_straight_line_error = bridgesampling::error_measures(bridge_straight_line)
+bridge_curved_line_error = bridgesampling:: error_measures(bridge_curved_line)
+
+show(bridge_straight_line_error)
+show(bride_curved_line_error)
+```
+
+Calculate Bayes factor in favour of the bridge_curved_line model
+```{r}
+bayes_factor(bridge_curved_line, bridge_straight_line)
+```
+
+
+
+
